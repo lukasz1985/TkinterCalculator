@@ -3,38 +3,72 @@
 # https://github.com/BaseMax/TkinterCalculator
 
 import tkinter as tk
+import tkinter.ttk as ttk
+import tkinter.simpledialog as sd
+import shelve as sh
+import datetime as dt
+
+# Constants
+SHELVE_FILENAME = "calc_shelve.dat"
 
 # Colors
 WHITE = "#FFFFFF"
 OFF_WHITE = "#F8FAFF"
-
 LABEL_COLOR = "#25265E"
-
+LIGHT_COLOR = "#AAAACC"
+HISTORY_FG = "#555599"
 LIGHT_BLUE = "#CCEDFF"
 LIGHT_GRAY = "#F5F5F5"
+MIDDLE_GRAY = "#999999"
+DARK_GRAY = "#444444"
+BLACK = "#000000"
+
 
 # Fonts
+HISTORY_FONT_STYLE = ("Serif", 8)
 DEFAULT_FONT_STYLE = ("Arial", 20)
-
 DIGITS_FONT_STYLE = ("Arial", 24, "bold")
-
 LARGE_FONT_STYLE = ("Arial", 40, "bold")
 SMALL_FONT_STYLE = ("Arial", 16)
+SMALLER_FONT_STYLE = ("Arial", 12)
+
+
+# Styles
+WHITE_FRAME_STYLE = {
+	"bg": WHITE, "borderwidth": 0
+}
+
+DIGIT_BUTTON_STYLE = {
+	"bg": WHITE, "fg" :LABEL_COLOR, "font": DIGITS_FONT_STYLE, "borderwidth": 0, 
+}
+
+OPERATOR_BUTTON_STYLE = {
+	"bg": OFF_WHITE, "fg": LABEL_COLOR, "font": DEFAULT_FONT_STYLE, "borderwidth": 0, 
+}
+
+DATE_ENTRY_STYLE = {
+	"bg": BLACK, "fg": WHITE
+}
 
 class TkinterCalculator:
 	def __init__(self):
 		self.window = tk.Tk()
 		self.window.geometry("375x667")
-		self.window.resizable(0, 0)
+		self.window.resizable(1, 1)
 		self.window.title("Calculator")
 
 		self.total_expression = ""
+		self.result_value = ""
 		self.current_expression = ""
+		self.history = []
 
 		self.display_frame = self.create_display_frame()
-		self.total_label, self.label = self.create_display_labels()
+		self.history_frame, self.history_container, self.history_box, self.input_frame, self.input_label, self.result_label = self.create_display_labels()
+		self.target_history_box = self.history_box
 
-		self.digits = {
+		# Characters that are accepted through keyboard input or/and have virtual keyboard equivalents.
+		# This is a map from a character to their corresponding row and column on the virutal keyboard - it it's non the they are not displayed.
+		self.characters = {
 			7: (1,1),
 			8: (1,2),
 			9: (1,3),
@@ -48,13 +82,23 @@ class TkinterCalculator:
 			3: (3,3),
 
 			0: (4, 2),
-			'.':(4, 1)
+			'.':(4, 1),
+			',':(4,3),
+			"=": None,
 		}
+
+		# Append all alpha numeric characters to the acceptable characters table:
+		for ascii in range(0,128):
+			character = chr(ascii)
+			if character.isalpha():
+				self.characters[character] = None
+
 		self.operations = {
 			"/": "\u00F7",
 			"*": "\u00D7",
 			"-": "-",
 			"+": "+",
+			"=": "="
 		}
 
 		self.buttons_frame = self.create_buttons_frame()
@@ -69,17 +113,114 @@ class TkinterCalculator:
 		self.create_special_buttons()
 		self.bind_keys()
 
+		self.load_history()
+		self.history_window = None
+
 	def run(self):
 		self.window.mainloop()
 
-	# Create
-	def create_sqrt_button(self):
-		button = tk.Button(self.buttons_frame, text="\u221ax", bg=OFF_WHITE, fg=LABEL_COLOR, font=DEFAULT_FONT_STYLE, borderwidth=0, command=self.sqrt)
-		button.grid(row=0, column=3, sticky=tk.NSEW)
 
-	def create_equals_button(self):
-		button = tk.Button(self.buttons_frame, text="=", bg=LIGHT_BLUE, fg=LABEL_COLOR, font=DEFAULT_FONT_STYLE, borderwidth=0, command=self.evaluate)
-		button.grid(row=4, column=3, columnspan=2, sticky=tk.NSEW)
+
+	# Create
+	def create_display_frame(self):
+		frame = tk.Frame(self.window, height=221, bg=LIGHT_GRAY)
+		frame.pack(expand=True, fill="both")
+		return frame
+
+
+	def create_display_labels(self):
+		history_frame, history_container, history_box = self.create_history_controls()
+		
+		input_frame = tk.Frame(self.display_frame)
+		input_frame.pack(expand=True, fill="x")
+
+		total_label = tk.Label(input_frame, text=self.total_expression, anchor=tk.E, padx=24, font=SMALL_FONT_STYLE, bg=LIGHT_GRAY, fg=LABEL_COLOR)
+		total_label.pack(expand=True, fill='both')
+
+		label = tk.Label(input_frame, text=self.current_expression, anchor=tk.E, padx=24, font=LARGE_FONT_STYLE, bg=LIGHT_GRAY, fg=LABEL_COLOR)
+		label.pack(expand=True, fill='both')
+
+		return history_frame, history_container, history_box, input_frame, total_label, label
+
+
+	def create_history_controls(self, parent = None, docked = True):
+		if parent == None:
+			parent = self.display_frame
+
+		if docked:
+			history_frame = tk.Frame(parent , padx=0, pady=2, bg=WHITE, borderwidth=1, relief="flat", highlightbackground=MIDDLE_GRAY, highlightthickness=0)
+			history_frame.pack(fill='both', expand=False, padx=4, pady=2)
+		else:
+			history_frame = tk.Frame(parent , padx=0, pady=2, bg=WHITE, borderwidth=1, relief="flat", highlightbackground=MIDDLE_GRAY, highlightthickness=0)
+			history_frame.pack(fill='both', expand=True)
+
+
+		## The header of the history panel:
+		header_frame = tk.Frame(history_frame, **WHITE_FRAME_STYLE)
+		header_frame.grid(row=0, column=0, sticky=tk.NSEW)
+
+		if docked:
+			# The history button:
+			image = tk.PhotoImage(file="clock.png")
+			undock_button = tk.Button(header_frame, image=image, relief="flat", border=0, command=self.toggle_history_box)
+			undock_button.image = image
+			undock_button.grid(row=0,column=0, sticky=tk.W, padx=2, pady=2)
+
+			# The undock button:
+			image = tk.PhotoImage(file="undock.png")
+			undock_button = tk.Button(header_frame, image=image, relief="flat", border=0, command=self.undock_history)
+			undock_button.image = image
+			undock_button.grid(row=0,column=1, sticky=tk.W, padx=2, pady=2)
+
+		history_label = tk.Label(header_frame, text="History of computations", font=SMALLER_FONT_STYLE, bg=WHITE, fg=BLACK, border=0)
+		if docked:
+			history_label.grid(row=0,column=2, padx=4, sticky=tk.EW)
+		else:
+			history_label.grid(row=0,column=0, columnspan=2, padx=4, sticky=tk.EW)
+
+		history_frame.rowconfigure(1, weight=1)
+		history_frame.columnconfigure(0, weight=1)
+
+
+		## The history container for the separator and the history entries listbox itself:
+		history_container = tk.Frame(history_frame, **WHITE_FRAME_STYLE)
+		history_container.grid(row=1, column=0, columnspan=2, sticky=tk.NSEW)
+		
+		if docked:
+			history_container.visible = True # Add a property that indicate whether own history box is visible (when docked).
+
+		# Separator from the header:
+		separator = tk.Frame(history_container, bg=LIGHT_GRAY, height=1)
+		separator.grid(row=0, column=0, sticky=tk.EW, pady=3, padx=0)
+
+		history_box = tk.Listbox(history_container, width=None, height=6 if docked else 40,
+						   border=0, highlightthickness=0, highlightcolor=LIGHT_GRAY, 
+						   font=HISTORY_FONT_STYLE, bg=WHITE, fg=BLACK, selectbackground=DARK_GRAY, )
+		
+		history_container.rowconfigure(1, weight=1)
+		history_container.columnconfigure(0, weight=1)
+
+
+		history_box.grid(padx=6, pady=4, row=1, column=0, sticky=tk.NSEW)
+		history_box.bind("<Double-1>", self.enter_history_item)
+
+
+
+
+		
+
+		# else:
+		# 	image = tk.PhotoImage(file="dock.png")
+		# 	undock_button = tk.Button(history_frame, image=image, relief="flat", border=0, command=self.dock_history)
+		# 	undock_button.image = image
+		# 	undock_button.grid(row=0,column=1, sticky=tk.NE)
+		# 	history_frame.columnconfigure(0, weight=1)
+
+		# separator = tk.Frame(history_frame, bg=LIGHT_COLOR, height=1)
+		# separator.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=3)
+
+		return history_frame, history_container, history_box
+
 
 	def create_buttons_frame(self):
 		frame = tk.Frame(self.window)
@@ -88,103 +229,213 @@ class TkinterCalculator:
 
 	def create_special_buttons(self):
 		self.create_clear_button()
-		self.create_equals_button()
 		self.create_square_button()
 		self.create_sqrt_button()
+		self.create_equals_button()
 
-	def create_display_labels(self):
-		total_label = tk.Label(self.display_frame, text=self.total_expression, anchor=tk.E, bg=LIGHT_GRAY, fg=LABEL_COLOR, padx=24, font=SMALL_FONT_STYLE)
-		total_label.pack(expand=True, fill='both')
+	def create_clear_button(self):
+		button = tk.Button(self.buttons_frame, text="C", command=self.clear, **OPERATOR_BUTTON_STYLE)
+		button.grid(row=0, column=1, sticky=tk.NSEW)
 
-		label = tk.Label(self.display_frame, text=self.current_expression, anchor=tk.E, bg=LIGHT_GRAY, fg=LABEL_COLOR, padx=24, font=LARGE_FONT_STYLE)
-		label.pack(expand=True, fill='both')
+	def create_square_button(self):
+		button = tk.Button(self.buttons_frame, text="x\u00b2", command=self.square, **OPERATOR_BUTTON_STYLE)
+		button.grid(row=0, column=2, sticky=tk.NSEW)
 
-		return total_label, label
+	def create_sqrt_button(self):
+		button = tk.Button(self.buttons_frame, text="\u221ax", command=self.sqrt, **OPERATOR_BUTTON_STYLE)
+		button.grid(row=0, column=3, sticky=tk.NSEW)
 
-	def create_display_frame(self):
-		frame = tk.Frame(self.window, height=221, bg=LIGHT_GRAY)
-		frame.pack(expand=True, fill="both")
-		return frame
-
-	def create_digit_buttons(self):
-		for digit, grid_value in self.digits.items():
-			button = tk.Button(self.buttons_frame, text=str(digit), bg=WHITE, fg=LABEL_COLOR, font=DIGITS_FONT_STYLE, borderwidth=0, command=lambda x=digit: self.add_to_expression(x))
-			button.grid(row=grid_value[0], column=grid_value[1], sticky=tk.NSEW)
 
 	def create_operator_buttons(self):
 		i = 0
 		for operator, symbol in self.operations.items():
-			button = tk.Button(self.buttons_frame, text=symbol, bg=OFF_WHITE, fg=LABEL_COLOR, font=DEFAULT_FONT_STYLE, borderwidth=0, command=lambda x=operator: self.append_operator(x))
+			button = tk.Button(self.buttons_frame, text=symbol, command=lambda x=operator: self.append_operator(x), **OPERATOR_BUTTON_STYLE)
 			button.grid(row=i, column=4, sticky=tk.NSEW)
 			i += 1
 
-	def create_clear_button(self):
-		button = tk.Button(self.buttons_frame, text="C", bg=OFF_WHITE, fg=LABEL_COLOR, font=DEFAULT_FONT_STYLE, borderwidth=0, command=self.clear)
-		button.grid(row=0, column=1, sticky=tk.NSEW)
+	def create_digit_buttons(self):
+		for digit, grid_value in self.characters.items():
+			if grid_value == None: continue # Skip the characters that have no virutal keys representation.
+			button = tk.Button(self.buttons_frame, text=str(digit),  command=lambda x=digit: self.add_to_expression(x), **DIGIT_BUTTON_STYLE,)
+			button.grid(row=grid_value[0], column=grid_value[1], sticky=tk.NSEW)
 
-	def create_square_button(self):
-		button = tk.Button(self.buttons_frame, text="x\u00b2", bg=OFF_WHITE, fg=LABEL_COLOR, font=DEFAULT_FONT_STYLE, borderwidth=0, command=self.square)
-		button.grid(row=0, column=2, sticky=tk.NSEW)
+	def create_equals_button(self):
+		button = tk.Button(self.buttons_frame, text="=", bg=LIGHT_BLUE, fg=LABEL_COLOR, font=DEFAULT_FONT_STYLE, borderwidth=0, command=self.evaluate)
+		button.grid(row=4, column=3, columnspan=2, sticky=tk.NSEW)
 
 	def add_to_expression(self, value):
+		if value == ",": value = "."
 		self.current_expression += str(value)
-		self.update_label()
+		self.total_expression = self.current_expression
+		self.update_input_label()
+		self.evaluate()
 
 	def append_operator(self, operator):
 		self.current_expression += operator
-		self.total_expression += self.current_expression
-		self.current_expression = ""
-		self.update_total_label()
-		self.update_label()
+		self.total_expression = self.current_expression
+		self.update_input_label()
+		self.evaluate()
 
 	# Handle
 	def bind_keys(self):
-		self.window.bind("<Return>", lambda event: self.evaluate())
-		for key in self.digits:
+		def on_enter_press(event):
+			self.evaluate()
+			self.write_to_history()
+
+		self.window.bind("<Return>", on_enter_press)
+		self.window.bind("<BackSpace>", self.on_backspace)
+		for key in self.characters:
 			self.window.bind(str(key), lambda event, digit=key: self.add_to_expression(digit))
 
 		for key in self.operations:
 			self.window.bind(key, lambda event, operator=key: self.append_operator(operator))
 
+		
+	def on_backspace(self):
+		print("backspaec")
+		pass
+
 	def clear(self):
 		self.current_expression = ""
 		self.total_expression = ""
-		self.update_label()
-		self.update_total_label()
+		self.update_input_label()
+		self.update_result_label()
 
 	def square(self):
 		self.current_expression = str(eval(f"{self.current_expression}**2"))
-		self.update_label()
+		self.evaluate()
 
 
 	def sqrt(self):
 		self.current_expression = str(eval(f"{self.current_expression}**0.5"))
-		self.update_label()
+		self.evaluate()
+
+	def toggle_history_box(self):
+		if self.history_container.visible:
+			self.history_container.grid_forget()
+		else:
+			self.history_container.grid(row=2,column=0, padx=4, sticky=tk.EW)
+		self.history_container.visible = not self.history_container.visible
+
+	def undock_history(self):
+		self.history_frame.pack_forget()
+		self.history_window = HistoryWindow(self)
+		self.load_history()
+
+	def dock_history(self):
+		self.history_frame.pack(side="top", expand=True, fill="both", padx=10, pady=10)
+		self.input_frame.pack(side="bottom", expand=True, fill="both")
+		self.target_history_box = self.history_box
+		self.load_history()
+		
 
 	# Update
-	def update_total_label(self):
-		expression = self.total_expression
+	def update_input_label(self):
+		expression = self.current_expression
 
 		for operator, symbol in self.operations.items():
 			expression = expression.replace(operator, f' {symbol} ')
 
-		self.total_label.config(text=expression)
+		self.input_label.config(text=expression)
 
-	def update_label(self):
-		self.label.config(text=self.current_expression[:11])
+	def update_result_label(self):
+		self.result_label.config(text=self.result_value)
 
 	# Evaluate
-	def evaluate(self):
-		self.total_expression += self.current_expression
-		self.update_total_label()
+	def evaluate(self, results = {}):
+		self.total_expression = self.current_expression
 
 		try:
-			self.current_expression = str(eval(self.total_expression))
-			self.total_expression = ""
+			exec("result = " + self.total_expression, globals(), results)
+			self.result_value = str(results["result"])
 		except Exception as e:
-			self.current_expression = "Error"
+			print(e)
+			self.result_value = "Error"
 		finally:
-			self.update_label()
+			self.update_result_label()
+
+	def enter_history_item(self, event):
+		''' Fired when history item is double clicked ''' 
+		selected_entry = self.history_box.selection_get()
+
+		selected_expression = selected_entry.split("=")[0]
+
+		self.current_expression = selected_expression
+		self.total_expression = selected_expression
+		self.update_input_label()
+		self.evaluate()
+
+
+	def write_to_history(self):
+		if self.result_value != "Error":
+			total_expression = self.total_expression
+			for operator, symbol in self.operations.items():
+				total_expression = total_expression.replace(operator, " " + symbol + " ")
+
+			expression_with_result = total_expression + " = " + self.result_value
+			self.target_history_box.insert(tk.END, expression_with_result)
+			self.target_history_box.yview(tk.END)
+			self.current_expression = self.result_value
+			self.total_expression = ""
+			self.update_input_label()
+			self.update_result_label()
+
+			datetime_str = dt.datetime.now().strftime("%d-%m-%Y %H:%M")
+			history_entry = datetime_str + " " + expression_with_result
+			self.history.append(history_entry)
+
+			with sh.open(SHELVE_FILENAME) as shelve:
+				shelve["history"] = self.history
+				
+	def load_history(self, target_history_listbox = None):
+		if target_history_listbox == None:
+			target_history_listbox = self.target_history_box
+
+		try:
+			with sh.open(SHELVE_FILENAME) as shelve:
+				self.history = shelve["history"] 
+
+				dates = []
+				for history_entry in self.history:
+					datetime_str = history_entry[0:16]
+					datetime_obj = dt.datetime.strptime(datetime_str, "%d-%m-%Y %H:%M").timestamp()
+					date_obj = dt.date.fromtimestamp(datetime_obj)
+					today = dt.date.today()
+					delta = today - date_obj
+					print(delta.days)
+
+					if delta.days == 0:
+						header = " Today"
+					elif delta.days == 1:
+						header = " Yesterday"
+					else:
+						header = date_obj.strftime(" %d-%m-%Y, %A")
+
+					if not date_obj in dates:
+						self.target_history_box.insert(tk.END, header)
+						self.target_history_box.itemconfig(tk.END, **DATE_ENTRY_STYLE)
+
+						dates.append(date_obj)
+
+					expression = history_entry[16:]
+					self.target_history_box.insert(tk.END, expression.strip())
+					self.target_history_box.yview(tk.END)
+		except KeyError:
+			print("No history file or history not written")
+
+
+class HistoryWindow(tk.Toplevel):
+	def __init__(self, app : TkinterCalculator):
+		super().__init__(app.window)
+		self.app = app
+
+		self.history_frame, self.history_container, self.history_box = self.app.create_history_controls(parent=self, docked=False)
+		self.app.target_history_box = self.history_box		
+
+
+	def destroy(self) -> None:
+		super().destroy()
+		self.app.dock_history()
 
 if __name__ == "__main__":
 	tkinter_calculator = TkinterCalculator()

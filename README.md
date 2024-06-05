@@ -1,30 +1,33 @@
-# Tkinter Calculator (Python)
+## Preamble
 
-Tiny and feature-rich calculator application created by Python powered by Tkinter. (GUI Calculator)
+This is a fork of calculator app from the repository https://github.com/BaseMax/TkinterCalculator
 
-![Python Tkinter Calculator](demo.png)
+## Tkinter Calculator (Python)
 
-## Run the python calculator
+<div style="text-align:center">
+
+![](screenshot.png)
+
+</div>
+
+Calculator application created by Python powered by Tkinter. (GUI Calculator)
+For now it supports basic operations such as addition, subtraction, multiplication and division.
+
+It also supports the history of performed operations - one of the main features, which is one of the main goals
+for the application
+
+Planned features:
+- support for python assignment statements to store a value is a defined variable,
+- parsing the whole history at startup, so the execution follows to a point where user can reference previously calculated variables,
+- making an installer that allows to install the calulator as the default Windows calculator application (which can be launched through a calculator button on the keyboard) if it fits the user,
+- and a lot more (graphing, simple equations solving, statistics, you name it)
+
+## Running
+
+For now you have to manually run the calculator by executing it from the command line.
 
 ```bash
 $ python app.py
 ```
 
-## Install requirements
-
-> The Tkinter library is built-in with every Python installation.
-
-Read more: https://tkdocs.com/tutorial/install.html
-
-## Standalone Executable
-
-At first you need to install the **pyinstaller**: `$ pip install pyinstaller`
-
-Next:
-```bash
-$ pyinstaller --onefile -w app.py
-```
-
-**Note:** this is python. so everyone can emit and reverse(like decompile) your program.
-
-I get the idea from a [video](https://www.youtube.com/watch?v=QZPv1y2znZo).
+Since there are no external dependencies, you can be sure it will run with recent versions of Python 3

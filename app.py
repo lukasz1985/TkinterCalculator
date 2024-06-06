@@ -38,6 +38,9 @@ SMALLER_FONT_STYLE = ("Arial", 12)
 WHITE_FRAME_STYLE = {
 	"bg": WHITE, "borderwidth": 0
 }
+GRAY_FRAME_STYLE = {
+	"bg": LIGHT_GRAY, "borderwidth": 0
+}
 DIGIT_BUTTON_STYLE = {
 	"bg": WHITE, "fg" :LABEL_COLOR, "font": DIGITS_FONT_STYLE, "borderwidth": 0, 
 }
@@ -51,20 +54,25 @@ DATE_ENTRY_STYLE = {
 
 
 class TkinterCalculator:
+
 	def __init__(self):
 		self.window = tk.Tk()
-		self.window.geometry("375x667")
+		self.window.geometry("375x667+900+0")
 		self.window.resizable(1, 1)
 		self.window.title("Calculator")
 
-		self.total_expression = ""
+		self.expression = ""
 		self.result_value = ""
 		self.cursor_position = 0
 		self.history = []
 
 		self.display_frame = self.create_display_frame()
-		self.history_frame, self.history_container, self.history_box, self.input_frame, self.input_label, self.result_label = self.create_display_labels()
-		self.target_history_box = self.history_box
+
+
+		self.history_frame, self.history_container, self.history_box = self.create_history_controls()
+		self.target_history_box = self.history_box # The tk.Listbox instance that contains all the entries themself.
+		
+		self.input_frame, self.input_field, self.result_label = self.create_input_controls()
 
 		# Characters that are accepted through keyboard input or/and have virtual keyboard equivalents.
 		# This is a map from a character to their corresponding row and column on the virutal keyboard - it it's non the they are not displayed.
@@ -86,8 +94,13 @@ class TkinterCalculator:
 			',':(4,3),
 			"=": None,
 		}
+		# Append all alpha numeric characters to the acceptable characters table:
+		for ascii in range(0,128):
+			character = chr(ascii)
+			if character.isalpha():
+				self.characters[character] = None
 
-		self.input_symbols = {
+		self.operands = {
 			"/": "\u00F7",
 			"*": "\u00D7",
 			"-": "-",
@@ -95,12 +108,6 @@ class TkinterCalculator:
 			"=": "="
 		}
 
-
-		# Append all alpha numeric characters to the acceptable characters table:
-		for ascii in range(0,128):
-			character = chr(ascii)
-			if character.isalpha():
-				self.characters[character] = None
 
 		self.buttons_frame = self.create_buttons_frame()
 
@@ -117,30 +124,21 @@ class TkinterCalculator:
 		self.load_history()
 		self.history_window = None
 
+
 	def run(self):
+		self.window.bind("<FocusIn>", self.handle_focus)
+		self.input_field.focus_set()
 		self.window.mainloop()
 
+	def handle_focus(self, event):
+		self.input_field.focus_set()
 
-	# Create
+	## User Interface creation logic ##
+		
 	def create_display_frame(self):
 		frame = tk.Frame(self.window, height=221, bg=LIGHT_GRAY)
 		frame.pack(expand=True, fill="both")
 		return frame
-
-
-	def create_display_labels(self):
-		history_frame, history_container, history_box = self.create_history_controls()
-		
-		input_frame = tk.Frame(self.display_frame)
-		input_frame.pack(expand=True, fill="x")
-
-		input_field = tk.Entry(input_frame, justify=tk.RIGHT, border=0, font=SMALL_FONT_STYLE, bg=LIGHT_GRAY, fg=LABEL_COLOR)
-		input_field.pack(expand=True, fill='both', padx=24)
-
-		total_label = tk.Label(input_frame, text="", anchor=tk.E, padx=24, font=LARGE_FONT_STYLE, bg=LIGHT_GRAY, fg=LABEL_COLOR)
-		total_label.pack(expand=True, fill='both')
-
-		return history_frame, history_container, history_box, input_frame, input_field, total_label
 
 
 	def create_history_controls(self, parent = None, docked = True):
@@ -164,19 +162,19 @@ class TkinterCalculator:
 			image = tk.PhotoImage(file="clock.png")
 			undock_button = tk.Button(header_frame, image=image, relief="flat", border=0, command=self.toggle_history_box)
 			undock_button.image = image
-			undock_button.grid(row=0,column=0, sticky=tk.W, padx=2, pady=2)
+			undock_button.grid(row=0, column=0, sticky=tk.W, padx=2, pady=2)
 
 			# The undock button:
 			image = tk.PhotoImage(file="undock.png")
 			undock_button = tk.Button(header_frame, image=image, relief="flat", border=0, command=self.undock_history)
 			undock_button.image = image
-			undock_button.grid(row=0,column=1, sticky=tk.W, padx=2, pady=2)
+			undock_button.grid(row=0, column=1, sticky=tk.W, padx=2, pady=2)
 
 		history_label = tk.Label(header_frame, text="History of computations", font=SMALLER_FONT_STYLE, bg=WHITE, fg=BLACK, border=0)
 		if docked:
-			history_label.grid(row=0,column=2, padx=4, sticky=tk.EW)
+			history_label.grid(row=0, column=2, padx=4, sticky=tk.EW)
 		else:
-			history_label.grid(row=0,column=0, columnspan=2, padx=4, sticky=tk.EW)
+			history_label.grid(row=0, column=0, columnspan=2, padx=4, sticky=tk.EW)
 
 		history_frame.rowconfigure(1, weight=1)
 		history_frame.columnconfigure(0, weight=1)
@@ -200,11 +198,35 @@ class TkinterCalculator:
 		history_container.rowconfigure(1, weight=1)
 		history_container.columnconfigure(0, weight=1)
 
-
 		history_box.grid(padx=6, pady=4, row=1, column=0, sticky=tk.NSEW)
 		history_box.bind("<Double-1>", self.enter_history_item)
 
 		return history_frame, history_container, history_box
+
+
+	def create_input_controls(self):
+		input_frame = tk.Frame(self.display_frame, **GRAY_FRAME_STYLE)
+		input_frame.pack(expand=True, fill="x")
+
+		def validator(param):
+			all_input = {}
+			all_input.update(self.characters)
+			all_input.update(self.operands)
+
+			for character in param:
+				for allowed_char in all_input:
+					if allowed_char == character: return True
+			return False
+
+		validate_command = (self.window.register(validator))
+		input_field = tk.Entry(input_frame, validate="all", validatecommand=(validate_command, "%P"), justify=tk.RIGHT, border=0, font=SMALL_FONT_STYLE, bg=LIGHT_GRAY, fg=LABEL_COLOR)
+		input_field.pack(expand=True, fill='both', padx=24)
+
+
+		total_label = tk.Label(input_frame, text="", anchor=tk.E, padx=24, font=LARGE_FONT_STYLE, bg=LIGHT_GRAY, fg=LABEL_COLOR)
+		total_label.pack(expand=True, fill='both')
+
+		return input_frame, input_field, total_label
 
 
 	def create_buttons_frame(self):
@@ -237,7 +259,7 @@ class TkinterCalculator:
 
 	def create_operator_buttons(self):
 		i = 0
-		for operator, symbol in self.input_symbols.items():
+		for operator, symbol in self.operands.items():
 			button = tk.Button(self.buttons_frame, text=symbol, command=lambda x=operator: self.append_operator(x), **OPERATOR_BUTTON_STYLE)
 			button.grid(row=i, column=4, sticky=tk.NSEW)
 			i += 1
@@ -255,55 +277,51 @@ class TkinterCalculator:
 		button.grid(row=4, column=3, columnspan=2, sticky=tk.NSEW)
 
 
-	def add_to_expression(self, value):
-		if value == ",": value = "."
-		self.total_expression += str(value)
-		self.update_input_label()
-		self.evaluate()
-
-
-	def append_operator(self, operator):
-		self.total_expression += operator
-		self.update_input_label()
-		self.evaluate()
-
-
 	# Handle
 	def bind_keys(self):
 		def on_enter_press(event):
 			self.evaluate()
 			self.write_to_history()
+			self.input_field.delete(0, tk.END)
 
 		self.window.bind("<Return>", on_enter_press)
 		self.window.bind("<BackSpace>", self.on_backspace)
-		for key in self.characters:
-			self.window.bind(str(key), lambda event, digit=key: self.add_to_expression(digit))
 
-		for key in self.input_symbols:
-			self.window.bind(key, lambda event, operator=key: self.append_operator(operator))
+		all_input = {}
+		all_input.update(self.characters)
+		all_input.update(self.operands)
+
+
+		def handle_input(event):
+			self.update_input_field()
+			self.evaluate()
+
+		for key in all_input:
+			self.window.bind(str(key), lambda event, key=key: handle_input(key))
+
 
 		
 	def on_backspace(self):
-		self.total_expression
+		self.expression
 
 
 	def clear(self):
-		self.total_expression = ""
-		self.update_input_label()
+		self.expression = ""
+		self.update_input_field()
 		self.update_result_label()
 
 
 	def square(self):
-		if self.total_expression:
-			self.total_expression = f"({self.total_expression})**2"
-			self.update_input_label()
+		if self.expression:
+			self.expression = f"({self.expression})**2"
+			self.update_input_field()
 			self.evaluate()
 
 
 	def sqrt(self):
-		if self.total_expression:
-			self.total_expression = f"({self.total_expression})**0.5"
-			self.update_input_label()
+		if self.expression:
+			self.expression = f"({self.expression})**0.5"
+			self.update_input_field()
 			self.evaluate()
 
 
@@ -329,7 +347,7 @@ class TkinterCalculator:
 		
 
 	# Update
-	def update_input_label(self):
+	def update_input_field(self):
 		self.symbols = {
 			"/": "/",
 			"*": "*",
@@ -339,7 +357,8 @@ class TkinterCalculator:
 			"*  *": "**"
 		}
 
-		expression = self.total_expression
+		# expression = self.total_expression
+		expression = self.input_field.get()
 
 		# Since the last call made spaces around operators - now we need to clear them 
 		# before applying them again:
@@ -347,10 +366,10 @@ class TkinterCalculator:
 		for operator, symbol in self.symbols.items():
 			expression = expression.replace(operator, f' {symbol} ') 
 
-		self.total_expression = expression
+		self.expression = expression
 
-		self.input_label.delete(0, tk.END)
-		self.input_label.insert(tk.END, expression)
+		self.input_field.delete(0, tk.END)
+		self.input_field.insert(tk.END, expression)
 
 	def update_result_label(self):
 		self.result_label.config(text=self.result_value)
@@ -358,9 +377,9 @@ class TkinterCalculator:
 
 	# Evaluate
 	def evaluate(self, results = {}):
-
+		expression = self.input_field.get()
 		try:
-			exec("result = " + self.total_expression, globals(), results)
+			exec("result = " + expression, globals(), results)
 			self.result_value = str(results["result"])
 		except Exception as e:
 			print(e)
@@ -375,22 +394,22 @@ class TkinterCalculator:
 
 		selected_expression = selected_entry.split("=")[0]
 
-		self.total_expression = selected_expression
-		self.update_input_label()
+		self.expression = selected_expression
+		self.update_input_field()
 		self.evaluate()
 
 
 	def write_to_history(self):
 		if self.result_value != "Error":
-			total_expression = self.total_expression
+			total_expression = self.expression
 			# for operator, symbol in self.operations.items():
 			# 	total_expression = total_expression.replace(operator, " " + symbol + " ")
 
 			expression_with_result = total_expression + " = " + self.result_value
 			self.target_history_box.insert(tk.END, expression_with_result)
 			self.target_history_box.yview(tk.END)
-			self.total_expression = ""
-			self.update_input_label()
+			self.expression = ""
+			self.update_input_field()
 			self.update_result_label()
 
 			datetime_str = dt.datetime.now().strftime("%d-%m-%Y %H:%M")

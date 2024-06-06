@@ -127,3 +127,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+calc_shelve.dat.bak
+calc_shelve.dat.dat
+calc_shelve.dat.dir
